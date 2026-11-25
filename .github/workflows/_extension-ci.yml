@@ -143,6 +143,11 @@ jobs:
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends --allow-downgrades \
             linux-libc-dev/bullseye linux-libc-dev:i386/bullseye zstd
+      - name: Install Webcon Linux dependencies
+        if: runner.os == 'Linux' && inputs.project == 'Webcon'
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends pkg-config
       - name: Initialize extension dependencies
         if: inputs.submodule != ''
         env:
@@ -198,7 +203,8 @@ jobs:
   release:
     name: Release
     needs: [version, build]
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    # A skipped optional plugin job must not suppress a successful native build's release.
+    if: ${{ !cancelled() && needs.version.result == 'success' && needs.build.result == 'success' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

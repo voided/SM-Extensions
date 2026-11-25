@@ -30,9 +30,13 @@ def build(root, arch, platform):
         bits = '32' if arch == 'x86' else '64'
         host = 'i686-linux-gnu' if arch == 'x86' else 'x86_64-linux-gnu'
         env = dict(os.environ, CC=f'{os.environ.get("CC", "clang")} -m{bits}', CFLAGS='-O2 -fPIC')
-        subprocess.run([str(source / 'configure'), f'--host={host}', f'--prefix={prefix}',
-                        '--disable-shared', '--enable-static', '--with-pic', '--disable-https',
-                        '--disable-curl', '--disable-doc', '--disable-examples'], cwd=work, env=env, check=True)
+        configure = [str(source / 'configure'), f'--host={host}', f'--prefix={prefix}',
+                     '--disable-shared', '--enable-static', '--with-pic', '--disable-https',
+                     '--disable-curl', '--disable-doc', '--disable-examples']
+        if arch == 'x86':
+            # Debian 11's 32-bit glibc does not support 64-bit time_t.
+            configure.append('--disable-year2038')
+        subprocess.run(configure, cwd=work, env=env, check=True)
         subprocess.run(['make', f'-j{min(os.cpu_count() or 2, 8)}'], cwd=work, env=env, check=True)
         subprocess.run(['make', 'install'], cwd=work, env=env, check=True)
         library = prefix / 'lib/libmicrohttpd.a'

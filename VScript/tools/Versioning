@@ -23,9 +23,11 @@ outputs = [
 import subprocess
 
 def git_path(name):
-  return subprocess.check_output(['git', '-C', builder.sourcePath, 'rev-parse',
-                                  '--path-format=absolute', '--git-path', name],
-                                 text=True).strip()
+  # Git 2.30 (Debian 11) does not support --path-format. Resolve relative
+  # paths from the directory passed to Git, including in linked worktrees.
+  path = subprocess.check_output(['git', '-C', builder.sourcePath, 'rev-parse',
+                                  '--git-path', name], text=True).strip()
+  return os.path.abspath(os.path.join(builder.sourcePath, path))
 
 git_head_path = git_path('HEAD')
 with open(git_head_path) as fp:
