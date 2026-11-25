@@ -1,0 +1,248 @@
+# Builds SMJansson for Linux and Windows (x86 and x86_64) on every push, pull
+# request and manual run, and packs each platform into an archive that is laid
+# out like a game folder. On Linux it also compiles the test plugin, with the
+# SourcePawn compiler of the same SourceMod. For a pushed v* tag it also publishes these archives
+# as a GitHub release, after checking that the tag matches the version the
+# extension reports.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  SOURCEMOD_BRANCH: 1.12-dev
+  # SMJansson's binaries may require at most this glibc version.
+  MAX_GLIBC: '2.29'
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            runner: ubuntu-22.04
+          - os: windows
+            runner: windows-2022
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Install Linux packages
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -yq --no-install-recommends clang gcc-multilib g++-multilib
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: extension
+
+      - name: Checkout SourceMod
+        uses: actions/checkout@v4
+        with:
+          repository: alliedmodders/sourcemod
+          ref: ${{ env.SOURCEMOD_BRANCH }}
+          path: sourcemod
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install AMBuild
+        run: pip install git+https://github.com/alliedmodders/ambuild
+
+      - name: Build
+        working-directory: extension/build
+        run: |
+          # On Windows AMBuild finds Visual Studio by itself.
+          if [ "${{ matrix.os }}" = linux ]; then
+            export CC=clang CXX=clang++
+          fi
+          python ../configure.py --enable-optimize --targets=x86,x86_64 --sm-path=../../sourcemod
+          ambuild
+
+      - name: Check the glibc version the binaries need
+        if: matrix.os == 'linux'
+        working-directory: extension/build/package/addons/sourcemod/extensions
+        run: |
+          for binary in smjansson.ext.so x64/smjansson.ext.so; do
+            needed=$(objdump -T "$binary" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -1)
+            echo "$binary needs glibc $needed"
+            if [ "$(printf '%s\n%s\n' "$needed" "$MAX_GLIBC" | sort -V | tail -1)" != "$MAX_GLIBC" ]; then
+              echo "::error::$binary needs glibc $needed, more than $MAX_GLIBC"
+              exit 1
+            fi
+          done
+
+      - name: Build the SourcePawn compiler
+        if: matrix.os == 'linux'
+        working-directory: sourcemod
+        run: |
+          mkdir build
+          cd build
+          export CC=clang CXX=clang++
+          python ../configure.py --scripting-only --enable-optimize --targets=x86_64
+          ambuild
+
+      - name: Compile the test plugin
+        if: matrix.os == 'linux'
+        working-directory: extension/pawn/scripting
+        run: |
+          # spcomp finds SourceMod's includes next to it. -E fails on warnings too,
+          # so the includes stay free of them.
+          ../../../sourcemod/build/package/spcomp64 -E -i include \
+            -o "$GITHUB_WORKSPACE/smjansson.test.smx" smjansson.test.sp
+
+      - name: Upload the test plugin
+        if: matrix.os == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          # Not smjansson-*, which the release job downloads into the release.
+          name: test-plugin
+          path: smjansson.test.smx
+          if-no-files-found: error
+
+      - name: Pack
+        id: pack
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            label="$GITHUB_REF_NAME"
+          else
+            label="${GITHUB_SHA::7}"
+          fi
+
+          package=extension/build/package/addons/sourcemod
+          stage=stage/addons/sourcemod
+          mkdir -p "$stage/extensions/x64" "$stage/scripting/include" \
+            "$stage/licenses/smjansson/licenses" "$stage/licenses/smjansson/jansson"
+
+          if [ "${{ matrix.os }}" = linux ]; then
+            strip --strip-debug -o "$stage/extensions/smjansson.ext.so" "$package/extensions/smjansson.ext.so"
+            strip --strip-debug -o "$stage/extensions/x64/smjansson.ext.so" "$package/extensions/x64/smjansson.ext.so"
+          else
+            cp "$package/extensions/smjansson.ext.dll" "$stage/extensions/"
+            cp "$package/extensions/x64/smjansson.ext.dll" "$stage/extensions/x64/"
+          fi
+          cp extension/pawn/scripting/include/smjansson.inc "$stage/scripting/include/"
+          cp extension/LICENSE.txt "$stage/licenses/smjansson/"
+          cp extension/licenses/GPLv2.txt extension/licenses/GPLv3.txt "$stage/licenses/smjansson/licenses/"
+          cp extension/jansson/LICENSE "$stage/licenses/smjansson/jansson/"
+
+          cd stage
+          if [ "${{ matrix.os }}" = linux ]; then
+            archive="smjansson-$label-linux.tar.gz"
+            tar -czf "../$archive" addons
+          else
+            archive="smjansson-$label-windows.zip"
+            7z a -tzip "../$archive" addons > /dev/null
+          fi
+          cd ..
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          echo "Contents of $archive:"
+          find stage -type f | sort
+
+      - name: Upload archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: smjansson-${{ matrix.os }}
+          path: ${{ steps.pack.outputs.archive }}
+          if-no-files-found: error
+
+  system-jansson:
+    name: Build (linux, system jansson)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Install packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -yq --no-install-recommends clang libjansson-dev
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: extension
+
+      - name: Checkout SourceMod
+        uses: actions/checkout@v4
+        with:
+          repository: alliedmodders/sourcemod
+          ref: ${{ env.SOURCEMOD_BRANCH }}
+          path: sourcemod
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install AMBuild
+        run: pip install git+https://github.com/alliedmodders/ambuild
+
+      # Only x86_64, which needs no 32-bit packages.
+      - name: Build
+        working-directory: extension/build
+        run: |
+          export CC=clang CXX=clang++
+          python ../configure.py --enable-optimize --targets=x86_64 --sm-path=../../sourcemod --system-jansson
+          ambuild
+
+      - name: Check that the extension links the system jansson
+        run: |
+          binary=extension/build/package/addons/sourcemod/extensions/x64/smjansson.ext.so
+          readelf -d "$binary" | grep 'NEEDED.*libjansson'
+
+  release:
+    name: Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check that the tag matches the extension version
+        run: |
+          # Tag vX-Y belongs to SMEXT_CONF_VERSION "X/Y", e.g. v2.15.1-1 and "2.15.1/1".
+          tag="$GITHUB_REF_NAME"
+          if [[ ! "$tag" =~ ^v([^-]+)-([^-]+)$ ]]; then
+            echo "::error::Tag $tag is not of the form v<jansson version>-<revision>, e.g. v2.15.1-1"
+            exit 1
+          fi
+          expected="${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
+          actual=$(sed -n 's/^#define SMEXT_CONF_VERSION[[:space:]]*"\(.*\)"/\1/p' sdk/smsdk_config.h)
+          if [ "$expected" != "$actual" ]; then
+            echo "::error::Tag $tag means version $expected, but sdk/smsdk_config.h says $actual"
+            exit 1
+          fi
+          echo "Version $actual matches tag $tag"
+
+      - name: Download archives
+        uses: actions/download-artifact@v4
+        with:
+          path: archives
+          pattern: smjansson-*
+          merge-multiple: true
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" archives/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            --verify-tag

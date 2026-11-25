@@ -1,0 +1,5 @@
+build
+Containerfile
+.venv
+safetyhook
+.env

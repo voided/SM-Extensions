@@ -1,0 +1,26 @@
+# vim: set sts=2 ts=8 sw=2 tw=99 et ft=python:
+import os
+
+libmicrohttpd = builder.RunScript('HTTPDBuilder')
+
+binary = builder.compiler.Library('webcon.ext')
+Webcon.ConfigureForExtension(builder, binary.compiler)
+
+binary.compiler.includes += [
+  os.path.join(builder.sourcePath, 'conplex', 'public'),
+  os.path.join(builder.sourcePath, 'webcon', 'libmicrohttpd', 'include')
+]
+
+binary.sources += [
+  'extension.cpp',
+  os.path.join(Webcon.sm_root, 'public', 'smsdk_ext.cpp')
+]
+
+binary.compiler.defines += ['SOURCEMOD_BUILD']
+
+binary.compiler.postlink += [libmicrohttpd.binary]
+
+if builder.target_platform == 'windows':
+  binary.compiler.linkflags += ['ws2_32.lib']
+
+Webcon.extensions += [builder.Add(binary)]

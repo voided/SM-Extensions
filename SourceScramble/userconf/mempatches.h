@@ -1,0 +1,48 @@
+#pragma once
+
+/**
+ * A gameconf listener for the "MemPatches" section.
+ */
+
+#include "extension.h"
+
+#include <unordered_map>
+
+using ByteVector = std::vector<uint8_t>;
+
+class MemPatchGameConfig : public ITextListener_SMC {
+public:
+	SMCResult ReadSMC_NewSection(const SMCStates *states, const char *name);
+	SMCResult ReadSMC_KeyValue(const SMCStates *states, const char *key, const char *value);
+	SMCResult ReadSMC_LeavingSection(const SMCStates *states);
+	void ReadSMC_ParseStart();
+	
+public:
+	class MemoryPatchInfo {
+	public:
+		MemoryPatchInfo()
+		{
+			// Other class variables are themselves initialized with a default value, 
+			// but this one is not, it contains a garbage value
+			offset = 0;
+		}
+
+		std::string signature;
+		size_t offset;
+		ByteVector vecPatch, vecVerify, vecPreserve;
+	};
+	
+	enum ParseState {
+		PState_None,
+		PState_Root,
+		PState_Runtime
+	};
+	
+public:
+	const MemoryPatchInfo* GetInfo(const char *key);
+	
+private:
+	std::unordered_map<std::string, MemoryPatchInfo*> m_MemPatchInfoMap;
+};
+
+extern MemPatchGameConfig g_MemPatchConfig;

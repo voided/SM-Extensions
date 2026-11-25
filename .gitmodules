@@ -1,0 +1,9 @@
+[submodule "Accelerator/third_party/breakpad"]
+	path = Accelerator/third_party/breakpad
+	url = https://github.com/google/breakpad.git
+[submodule "Accelerator/third_party/zlib"]
+	path = Accelerator/third_party/zlib
+	url = https://github.com/madler/zlib.git
+[submodule "VScript/third_party/hl2sdk-manifests"]
+	path = VScript/third_party/hl2sdk-manifests
+	url = https://github.com/alliedmodders/hl2sdk-manifests.git

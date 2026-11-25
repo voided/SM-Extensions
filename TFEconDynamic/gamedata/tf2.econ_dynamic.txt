@@ -1,0 +1,50 @@
+"Games"
+{
+	"tf"
+	{
+		"Offsets"
+		{
+			"CEconItemSchema::m_mapAttributes"
+			{
+				"linux"		"472"
+				"linux64"	"632"
+				"windows"	"472"
+				"windows64"	"632"
+			}
+			"CEconItemSchema::m_mapAttributeNames"
+			{
+				"linux"		"508"
+				"linux64"	"680"
+				"windows"	"508"
+				"windows64"	"680"
+			}
+			"CEconItemSchema::m_vecAttributeDefinitions"
+			{
+				"linux"		"544"
+				"linux64"	"728"
+				"windows"	"544"
+				"windows64"	"728"
+			}
+		}
+		"Signatures"
+		{
+			"GEconItemSchema()"
+			{
+				// taken straight from tf2attributes
+				"library"	"server"
+				"linux"		"@_Z15GEconItemSchemav"
+				"linux64"	"@_Z15GEconItemSchemav"
+				"windows"	"\xE8\x2A\x2A\x2A\x2A\x83\xC0\x04\xC3"
+				"windows64"	"\x48\x83\xEC\x28\xE8\x2A\x2A\x2A\x2A\x48\x83\xC0\x08"
+			}
+			"CEconItemAttributeDefinition::BInitFromKV()"
+			{
+				"library"	"server"
+				"linux"		"@_ZN28CEconItemAttributeDefinition11BInitFromKVEP9KeyValuesP10CUtlVectorI10CUtlString10CUtlMemoryIS3_iEE"
+				"linux64"	"@_ZN28CEconItemAttributeDefinition11BInitFromKVEP9KeyValuesP10CUtlVectorI10CUtlString10CUtlMemoryIS3_iEE"
+				"windows"	"\x55\x8B\xEC\x83\xEC\x0C\x53\x56\x8B\xF1\x8B\x4D\x08"
+				"windows64"	"\x48\x89\x5C\x24\x2A\x48\x89\x74\x24\x2A\x48\x89\x7C\x24\x2A\x55\x41\x56\x41\x57\x48\x8B\xEC\x48\x83\xEC\x2A\x48\x8B\xD9"
+			}
+		}
+	}
+}

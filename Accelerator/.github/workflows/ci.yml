@@ -1,0 +1,62 @@
+name: CI
+on:
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  cache:
+    uses: ./.github/workflows/cache.yml
+
+  sm112:
+    name: SM 1.12
+    needs: [ cache ]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            cc: clang-22
+            cxx: clang++-22
+            container: 'ghcr.io/alliedmodders/build-containers/debian11-clang22:latest'
+            artifact: accelerator_linux
+          - os: windows-latest
+            cc: msvc
+            cxx: msvc
+            container: ''
+            artifact: accelerator_windows
+    uses: ./.github/workflows/build-extension.yml
+    with:
+      os: ${{ matrix.os }}
+      cc: ${{ matrix.cc }}
+      cxx: ${{ matrix.cxx }}
+      container: ${{ matrix.container }}
+      cache-key: ${{ needs.cache.outputs.key }}
+      cache-dir: ${{ needs.cache.outputs.dir }}
+      upload: true
+      upload-artifact-name: ${{ matrix.artifact }}
+
+  sm113:
+    name: SM 1.13
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            cc: clang-22
+            cxx: clang++-22
+            container: 'ghcr.io/alliedmodders/build-containers/debian11-clang22:latest'
+            artifact: accelerator_sm113_linux
+          - os: windows-latest
+            cc: msvc
+            cxx: msvc
+            container: ''
+            artifact: accelerator_sm113_windows
+    uses: ./.github/workflows/build-extension.yml
+    with:
+      os: ${{ matrix.os }}
+      cc: ${{ matrix.cc }}
+      cxx: ${{ matrix.cxx }}
+      container: ${{ matrix.container }}
+      sourcemod-branch: 'master'
+      upload: true
+      upload-artifact-name: ${{ matrix.artifact }}

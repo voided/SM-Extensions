@@ -1,0 +1,158 @@
+name: Build Extension
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        sm:
+          - label: sm1.12
+            ref: 1.12-dev
+          - label: sm1.13
+            ref: master
+        build:
+          - os: ubuntu-latest
+            container: ghcr.io/alliedmodders/build-containers/debian11-clang22:latest
+            target: x86
+            platform: linux32
+          - os: ubuntu-latest
+            container: ghcr.io/alliedmodders/build-containers/debian11-clang22:latest
+            target: x86_64
+            platform: linux64
+          - os: windows-latest
+            target: x86
+            platform: win32
+          - os: windows-latest
+            target: x86_64
+            platform: win64
+
+    name: Build (${{ matrix.sm.label }}-${{ matrix.build.platform }})
+    runs-on: ${{ matrix.build.os }}
+    container: ${{ matrix.build.container || null }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Checkout hl2sdks
+        shell: bash
+        run: |
+          for sdk in tf2 css hl2dm dods; do
+            git clone --depth 1 --branch $sdk https://github.com/alliedmodders/hl2sdk cache/hl2sdk-$sdk
+          done
+
+      - name: Checkout AMBuild
+        uses: actions/checkout@v7
+        with:
+          repository: alliedmodders/ambuild
+          ref: master
+          path: cache/ambuild
+          fetch-depth: 1
+
+      - name: Checkout SourceMod
+        uses: actions/checkout@v7
+        with:
+          repository: alliedmodders/sourcemod
+          ref: ${{ matrix.sm.ref }}
+          path: cache/sourcemod
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Checkout Metamod:Source
+        uses: actions/checkout@v7
+        with:
+          repository: alliedmodders/metamod-source
+          ref: 1.12-dev
+          path: cache/metamod-source
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Install AMBuild
+        run: pip3 install ./cache/ambuild
+
+      - name: Build
+        shell: bash
+        run: |
+          git config --global --add safe.directory "$(pwd)"
+          mkdir -p build && cd build
+          python3 ../configure.py \
+            --sdk=tf2,css,hl2dm,dods \
+            --mms-path="../cache/metamod-source" \
+            --sm-path="../cache/sourcemod" \
+            --sdk-root="../cache" \
+            --enable-optimize \
+            --enable-auto-versioning \
+            --targets ${{ matrix.build.target }}
+          ambuild
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: VScript-${{ matrix.sm.label }}-${{ matrix.build.platform }}
+          path: build/package
+
+  release:
+    name: Release
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check for version change
+        id: version
+        run: |
+          version=$(cat product.version | tr -d '[:space:]')
+          if gh release view "$version" &>/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "tag=$version" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download artifacts
+        if: steps.version.outputs.exists == 'false'
+        uses: actions/download-artifact@v8
+
+      - name: Package
+        if: steps.version.outputs.exists == 'false'
+        shell: bash
+        run: |
+          for dir in VScript-sm*-linux32; do
+            sm="${dir#VScript-}"; sm="${sm%-linux32}"
+            mkdir "VScript-$sm-linux" "VScript-$sm-windows"
+            cp -r "VScript-$sm-linux32"/* "VScript-$sm-linux/"
+            cp -r "VScript-$sm-linux64"/* "VScript-$sm-linux/"
+            cp -r "VScript-$sm-win32"/* "VScript-$sm-windows/"
+            cp -r "VScript-$sm-win64"/* "VScript-$sm-windows/"
+            tar -czf "VScript-$sm-linux.tar.gz" -C "VScript-$sm-linux" .
+            (cd "VScript-$sm-windows" && zip -r "../VScript-$sm-windows.zip" .)
+          done
+
+      - name: Create release
+        if: steps.version.outputs.exists == 'false'
+        run: >
+          gh release create "${{ steps.version.outputs.tag }}"
+          VScript-sm*-linux.tar.gz
+          VScript-sm*-windows.zip
+          --generate-notes
+          --draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

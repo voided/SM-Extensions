@@ -1,0 +1,10 @@
+name: Pull Request
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  main-ci:
+    uses: ./.github/workflows/ci.yml

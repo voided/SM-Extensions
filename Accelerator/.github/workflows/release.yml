@@ -1,0 +1,89 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master, release_ci ]
+
+jobs:
+  main-ci:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    needs: [ main-ci ]
+
+    env:
+      PROJECT: 'accelerator'
+      UPLOAD_PASSWORD: ${{ secrets.UPLOAD_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v7
+        name: Repository checkout
+        with:
+          fetch-depth: 0
+          path: repository
+
+      - name: Download Linux release
+        uses: actions/download-artifact@v8
+        with:
+          name: accelerator_linux
+          path: linux
+
+      - name: Download Windows release
+        uses: actions/download-artifact@v8
+        with:
+          name: accelerator_windows
+          path: windows
+
+      - name: Zip release again
+        run: |
+          cd repository
+          read -r PRODUCT_VERSION < ./product.version
+          REV_COUNT=$(git rev-list --count HEAD)
+          REV_SHA=$(git rev-parse --short HEAD)
+          cd ..
+          WINDOWS_ZIP="${{ env.PROJECT }}-$PRODUCT_VERSION-git$REV_COUNT-$REV_SHA-windows.zip"
+          LINUX_ZIP="${{ env.PROJECT }}-$PRODUCT_VERSION-git$REV_COUNT-$REV_SHA-linux.zip"
+          zip -r ${WINDOWS_ZIP} windows
+          zip -r ${LINUX_ZIP} linux
+
+          echo "WINDOWS_ZIP=${WINDOWS_ZIP}" >> $GITHUB_ENV
+          echo "LINUX_ZIP=${LINUX_ZIP}" >> $GITHUB_ENV
+
+      - name: Upload release
+        if: env.UPLOAD_PASSWORD != ''
+        shell: bash
+        run: |
+          echo "Begin upload for branch (${{ github.ref_name }})"
+          AUTHORIZATION="$(echo -n "builds:${UPLOAD_PASSWORD}" | base64)"
+          echo "::add-mask::${AUTHORIZATION}"
+
+          echo "Uploading ${{ env.WINDOWS_ZIP }}"
+          HTTP_CODE=$(curl -XPOST -H "Authorization: Basic ${AUTHORIZATION}" -H "Content-Type: application/zip" --output /dev/null --silent --write-out "%{http_code}" --data-binary "@${{ env.WINDOWS_ZIP }}" "https://builds.limetech.io/upload.php?project=${{ env.PROJECT }}&branch=${{ github.ref_name }}&filename=${{ env.WINDOWS_ZIP }}")
+          if test ${HTTP_CODE} -ne 200; then
+            echo "Upload failed with HTTP Code: ${HTTP_CODE}"
+            exit 1
+          fi
+          echo "Uploading ${{ env.LINUX_ZIP }}"
+          HTTP_CODE=$(curl -XPOST -H "Authorization: Basic ${AUTHORIZATION}" -H "Content-Type: application/zip" --output /dev/null --silent --write-out "%{http_code}" --data-binary "@${{ env.LINUX_ZIP }}" "https://builds.limetech.io/upload.php?project=${{ env.PROJECT }}&branch=${{ github.ref_name }}&filename=${{ env.LINUX_ZIP }}")
+          if test ${HTTP_CODE} -ne 200; then
+            echo "Upload failed with HTTP Code: ${HTTP_CODE}"
+            exit 1
+          fi
+          echo "Upload successful!"
+
+      - name: Upload Windows artifact
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ env.WINDOWS_ZIP }}
+          archive: false
+
+      - name: Upload Linux artifact
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ env.LINUX_ZIP }}
+          archive: false

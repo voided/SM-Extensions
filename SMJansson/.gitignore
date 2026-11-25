@@ -1,0 +1,11 @@
+# vim swap files
+*.swp
+
+# build folder
+build/*
+
+
+# include build commands
+!build/build
+!build/clean
+

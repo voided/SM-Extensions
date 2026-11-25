@@ -1,0 +1,7 @@
+#!/bin/bash
+
+python3 ../configure.py \
+        --sm-path ../../sdk/sourcemod \
+        --targets x86,x86_64
+
+ambuild
