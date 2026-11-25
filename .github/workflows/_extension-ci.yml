@@ -112,6 +112,11 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Register checked-out workspace with Git (Linux)
+        if: runner.os == 'Linux'
+        # The container user differs from the runner's workspace owner, and
+        # checkout's temporary global config is not retained by later steps.
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Setup Python (Windows)
         if: runner.os == 'Windows'
         uses: actions/setup-python@v7
