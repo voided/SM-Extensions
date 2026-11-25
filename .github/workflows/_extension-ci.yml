@@ -177,9 +177,9 @@ jobs:
           path: ${{ steps.package.outputs.path }}/addons/sourcemod/plugins
       - name: Verify package
         env:
-          PLATFORM: ${{ matrix.target.os_name }}
+          BUILD_OS_NAME: ${{ matrix.target.os_name }}
         run: |
-          "$PYTHON" .github/scripts/build_extension.py verify "$PROJECT" --arch "$ARCH" --platform "$PLATFORM"
+          "$PYTHON" .github/scripts/build_extension.py verify "$PROJECT" --arch "$ARCH" --platform "$BUILD_OS_NAME"
       - name: Upload package artifact
         uses: actions/upload-artifact@v7
         with:

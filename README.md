@@ -43,7 +43,7 @@ The native matrix is SourceMod **1.12** (`1.12-dev`) and **1.13** (`master`), Wi
 | SMJansson | [smjansson.yml](.github/workflows/smjansson.yml) | x86, x64 | x86, x64 |
 | SourceScramble | [source-scramble.yml](.github/workflows/source-scramble.yml) | x86, x64 | x86, x64 |
 | TFEconDynamic | [tf-econ-dynamic.yml](.github/workflows/tf-econ-dynamic.yml) | x86, x64 | x86, x64 |
-| TFMaxSpeedDetour | [tf-max-speed-detour.yml](.github/workflows/tf-max-speed-detour.yml) | x86 | x86 |
+| TFMaxSpeedDetour | [tf-max-speed-detour.yml](.github/workflows/tf-max-speed-detour.yml) | x86, x64 | x86, x64 |
 | TFMaxVoiceSpeakDelayUnlimiter | [tf-max-voice-speak-delay-unlimiter.yml](.github/workflows/tf-max-voice-speak-delay-unlimiter.yml) | x86, x64 | x86, x64 |
 | VScript | [vscript.yml](.github/workflows/vscript.yml) | x86, x64 | x86, x64 |
 
@@ -53,8 +53,8 @@ To build an enabled extension locally, install AMBuild 2.2 or newer and the appr
 
 ```sh
 python -m pip install git+https://github.com/alliedmodders/ambuild.git
-python .github/scripts/build_extension.py build TFMaxSpeedDetour --deps /path/to/deps --arch x86
-python .github/scripts/build_extension.py verify TFMaxSpeedDetour --arch x86 --platform linux
+python .github/scripts/build_extension.py build TFMaxSpeedDetour --deps /path/to/deps --arch x86_64
+python .github/scripts/build_extension.py verify TFMaxSpeedDetour --arch x86_64 --platform linux
 ```
 
 For projects with bundled SourcePawn plugins, invoke the matching SourcePawn compiler and copy the `.smx` into the package's `addons/sourcemod/plugins` directory, as the CI plugin job does.
@@ -67,7 +67,7 @@ For projects with bundled SourcePawn plugins, invoke the matching SourcePawn com
 | Socket | Hard-coded 32-bit Makefile and old MSVC project, bundled legacy SourceMod SDK shim and Boost.Asio/Boost.Thread dependency; needs a modern AMBuild 2.2 and dependency port for both platforms. |
 | Webcon and Conplex | Shared legacy build requiring older SourceMod header paths and detour APIs, a bundled historical libmicrohttpd and platform networking code; needs a coordinated modernization before independent releases. |
 
-The build matrix validates compilation and package layout, not game-server behavior. TFMaxSpeedDetour compiles for x64, but its upstream gamedata only supplies x86 signature keys; x64 is intentionally excluded from CI until the gamedata is updated. Other gamedata and ABI compatibility still require runtime validation before deployment.
+The build matrix validates compilation and package layout, not game-server behavior. Gamedata and ABI compatibility still require runtime validation before deployment.
 
 ## Licensing
 

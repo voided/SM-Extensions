@@ -29,7 +29,5 @@ jobs:
       contents: write
     with:
       project: TFMaxSpeedDetour
-      # The upstream gamedata has only 32-bit signature keys.
-      architectures: '["x86"]'
       sdk: true
       metamod: true

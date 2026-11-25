@@ -9,7 +9,9 @@
 				// contains unique string "mult_player_aiming_movespeed"
 				"library"	"server"
 				"linux"		"@_ZNK9CTFPlayer30TeamFortress_CalculateMaxSpeedEb"
+				"linux64"	"@_ZNK9CTFPlayer30TeamFortress_CalculateMaxSpeedEb"
 				"windows"	"\x55\x8B\xEC\x83\xEC\x18\x56\x8B\xF1\x8B\x0D\x2A\x2A\x2A\x2A"
+				"windows64"	"\x40\x53\x41\x56\x41\x57\x48\x81\xEC\x2A\x2A\x2A\x2A\x48\x8B\xD9\x44\x0F\xB6\xFA\x48\x8B\x0D\x2A\x2A\x2A\x2A\x48\x85\xC9\x0F\x84"
 			}
 		}
 	}

@@ -11,7 +11,7 @@ modifying-behaviors, where applying attributes to change the speed would be cumb
 I'd probably be using that instead.~~  In the future, this extension will be replaced
 with a plugin based on DHooks; the previously mentioned issues are no longer true.
 
-Only tested and verified against Linux.
+Supports x86 and x64 TF2 dedicated servers on Linux and Windows.
 
 [DHooks with detours]: https://forums.alliedmods.net/showpost.php?p=2588686&postcount=589
 

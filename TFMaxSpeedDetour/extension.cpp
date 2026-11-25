@@ -30,6 +30,7 @@
  */
 
 #include "extension.h"
+#include <cstdio>
 
 /**
  * @file extension.cpp
@@ -40,7 +41,7 @@ TF2MaxSpeedDetour g_TF2MaxSpeedDetour;		/**< Global singleton for extension's ma
 
 SMEXT_LINK(&g_TF2MaxSpeedDetour);
 
-CDetour *detour_CTFPlayer_CalculateMaxSpeed;
+CDetour *detour_CTFPlayer_CalculateMaxSpeed = nullptr;
 
 IForward *g_calculateMaxSpeedForward = NULL;
 
@@ -62,7 +63,8 @@ DETOUR_DECL_MEMBER1(CTFPlayer_CalculateMaxSpeed, float, bool, reentrant) {
 	cell_t playerCell = gamehelpers->EntityToBCompatRef((CBaseEntity *)this);
 	
 	// prevent calling on invalid player (????)
-	if (!playerhelpers->GetGamePlayer(playerCell)->IsInGame()) {
+	IGamePlayer *player = playerhelpers->GetGamePlayer(playerCell);
+	if (!player || !player->IsInGame()) {
 		return flOrigResult;
 	}
 	
@@ -95,17 +97,41 @@ bool TF2MaxSpeedDetour::SDK_OnLoad(char *error, size_t maxlength, bool late) {
 			"CTFPlayer::TeamFortress_CalculateMaxSpeed()");
 	
 	gameconfs->CloseGameConfigFile(pGameConf);
+	if (!detour_CTFPlayer_CalculateMaxSpeed) {
+		std::snprintf(error, maxlength, "Could not create TeamFortress_CalculateMaxSpeed detour");
+		return false;
+	}
 	
 	// Action TF2_OnCalculateMaxSpeed(int client, float &flMaxSpeed);
 	g_calculateMaxSpeedForward = forwards->CreateForward("TF2_OnCalculateMaxSpeed",
 			ET_Hook, 2, NULL, Param_Cell, Param_FloatByRef);
+	if (!g_calculateMaxSpeedForward) {
+		detour_CTFPlayer_CalculateMaxSpeed->Destroy();
+		detour_CTFPlayer_CalculateMaxSpeed = nullptr;
+		std::snprintf(error, maxlength, "Could not create TF2_OnCalculateMaxSpeed forward");
+		return false;
+	}
 	
 	detour_CTFPlayer_CalculateMaxSpeed->EnableDetour();
+	if (!detour_CTFPlayer_CalculateMaxSpeed->IsEnabled()) {
+		SDK_OnUnload();
+		std::snprintf(error, maxlength, "Could not enable TeamFortress_CalculateMaxSpeed detour");
+		return false;
+	}
 	
 	return true;
 }
 
 void TF2MaxSpeedDetour::SDK_OnUnload() {
-	detour_CTFPlayer_CalculateMaxSpeed->DisableDetour();
-	forwards->ReleaseForward(g_calculateMaxSpeedForward);
+	if (detour_CTFPlayer_CalculateMaxSpeed) {
+		if (detour_CTFPlayer_CalculateMaxSpeed->IsEnabled()) {
+			detour_CTFPlayer_CalculateMaxSpeed->DisableDetour();
+		}
+		detour_CTFPlayer_CalculateMaxSpeed->Destroy();
+		detour_CTFPlayer_CalculateMaxSpeed = nullptr;
+	}
+	if (g_calculateMaxSpeedForward) {
+		forwards->ReleaseForward(g_calculateMaxSpeedForward);
+		g_calculateMaxSpeedForward = nullptr;
+	}
 }
