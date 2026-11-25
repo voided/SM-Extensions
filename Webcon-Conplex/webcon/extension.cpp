@@ -1,4 +1,7 @@
 #include "extension.h"
+#include <utility>
+#include <cstdint>
+#include <cstdio>
 
 #include "microhttpd.h"
 
@@ -32,14 +35,12 @@ MHD_Response *responseNotFound;
 struct PluginRequestHandler
 {
 	static bool matches(const char *key, const PluginRequestHandler &value);
+	static uint32_t hash(const SourceMod::detail::CharsAndLength &key) { return key.hash(); }
 
 	PluginRequestHandler(const char *id, IPluginContext *context, funcid_t function, const char *name, const char *description);
 	~PluginRequestHandler();
 
-	// TODO: Once we update to a version of SM with modern AMTL,
-	// this needs to be converted to a move constructor.
-	// (and the copy ctor deletes below can go)
-	PluginRequestHandler(ke::Moveable<PluginRequestHandler> other);
+	PluginRequestHandler(PluginRequestHandler &&other);
 
 	PluginRequestHandler(PluginRequestHandler const &other) = delete;
 	PluginRequestHandler &operator =(PluginRequestHandler const &other) = delete;
@@ -68,17 +69,17 @@ PluginRequestHandler::PluginRequestHandler(const char *id, IPluginContext *conte
 	this->description = strdup(description);
 }
 
-PluginRequestHandler::PluginRequestHandler(ke::Moveable<PluginRequestHandler> other)
+PluginRequestHandler::PluginRequestHandler(PluginRequestHandler &&other)
 {
-	callback = other->callback;
-	id = other->id;
-	name = other->name;
-	description = other->description;
+	callback = other.callback;
+	id = other.id;
+	name = other.name;
+	description = other.description;
 
-	other->callback = NULL;
-	other->id = NULL;
-	other->name = NULL;
-	other->description = NULL;
+	other.callback = NULL;
+	other.id = NULL;
+	other.name = NULL;
+	other.description = NULL;
 }
 
 PluginRequestHandler::~PluginRequestHandler()
@@ -99,7 +100,7 @@ bool PluginRequestHandler::IsAlive()
 
 bool PluginRequestHandler::Execute(MHD_Connection *connection, const char *method, const char *url)
 {
-	Handle_t handle = (Handle_t)(MHD_get_connection_info(connection, MHD_CONNECTION_INFO_SOCKET_CONTEXT)->socket_context);
+	Handle_t handle = static_cast<Handle_t>(reinterpret_cast<uintptr_t>(MHD_get_connection_info(connection, MHD_CONNECTION_INFO_SOCKET_CONTEXT)->socket_context));
 
 	if (handle == BAD_HANDLE) {
 		return false;
@@ -367,7 +368,7 @@ cell_t Web_RegisterRequestHandler(IPluginContext *context, const cell_t *params)
 	// TODO: Test code
 	//defaultRequestHandler = handler.id;
 
-	requestHandlers.add(i, ke::Moveable<PluginRequestHandler>(handler));
+	requestHandlers.add(i, std::move(handler));
 
 	return 1;
 }
@@ -385,7 +386,7 @@ sp_nativeinfo_t natives[] = {
 	{NULL, NULL}
 };
 
-int DefaultConnectionHandler(void *cls, MHD_Connection *connection, const char *url, const char *method, const char *version, const char *upload_data, size_t *upload_data_size, void **con_cls)
+MHD_Result DefaultConnectionHandler(void *cls, MHD_Connection *connection, const char *url, const char *method, const char *version, const char *upload_data, size_t *upload_data_size, void **con_cls)
 {
 	if (url[0] != '/') {
 		return MHD_NO;
@@ -457,7 +458,7 @@ int DefaultConnectionHandler(void *cls, MHD_Connection *connection, const char *
 		assert(cursor == length);
 
 		MHD_Response *response = MHD_create_response_from_buffer(length, (void *)buffer, MHD_RESPMEM_MUST_FREE);
-		int success = MHD_queue_response(connection, MHD_HTTP_OK, response);
+		MHD_Result success = MHD_queue_response(connection, MHD_HTTP_OK, response);
 		MHD_destroy_response(response);
 
 		return success;
@@ -517,7 +518,7 @@ int DefaultConnectionHandler(void *cls, MHD_Connection *connection, const char *
 
 		MHD_Response *response = MHD_create_response_from_buffer(0, NULL, MHD_RESPMEM_PERSISTENT);
 		MHD_add_response_header(response, MHD_HTTP_HEADER_LOCATION, redirect);
-		int success = MHD_queue_response(connection, MHD_HTTP_FOUND, response);
+		MHD_Result success = MHD_queue_response(connection, MHD_HTTP_FOUND, response);
 		MHD_destroy_response(response);
 
 		free(redirect);
@@ -532,13 +533,13 @@ void LogErrorCallback(void *cls, const char *fm, va_list ap)
 {
 	char buffer[2048];
 	size_t bytes = smutils->FormatArgs(buffer, sizeof(buffer), fm, ap);
-	buffer[bytes - 1] = '\0'; // Strip newline.
+	if (bytes && buffer[bytes - 1] == '\n') buffer[bytes - 1] = '\0';
 	smutils->LogError(myself, "%s", buffer);
 }
 
 void NotifyConnectionCallback(void *cls, MHD_Connection *connection, void **socket_context, MHD_ConnectionNotificationCode toe)
 {
-	Handle_t *handle = (Handle_t *)socket_context;
+	Handle_t handle = static_cast<Handle_t>(reinterpret_cast<uintptr_t>(*socket_context));
 
 	HandleError error;
 
@@ -549,9 +550,10 @@ void NotifyConnectionCallback(void *cls, MHD_Connection *connection, void **sock
 	switch(toe) {
 		case MHD_CONNECTION_NOTIFY_STARTED:
 		{
-			*handle = handlesys->CreateHandle(handleTypeConnection, connection, NULL, myself->GetIdentity(), &error);
+			handle = handlesys->CreateHandle(handleTypeConnection, connection, NULL, myself->GetIdentity(), &error);
+			*socket_context = reinterpret_cast<void *>(static_cast<uintptr_t>(handle));
 
-			if (*handle == BAD_HANDLE) {
+			if (handle == BAD_HANDLE) {
 				smutils->LogError(myself, "Error creating handle for connection. (%d)", error);
 			}
 
@@ -560,19 +562,19 @@ void NotifyConnectionCallback(void *cls, MHD_Connection *connection, void **sock
 
 		case MHD_CONNECTION_NOTIFY_CLOSED:
 		{
-			if (*handle == BAD_HANDLE) {
+			if (handle == BAD_HANDLE) {
 				break;
 			}
 
-			error = g_pHandleSys->FreeHandle(*handle, &security);
+			error = g_pHandleSys->FreeHandle(handle, &security);
 
 			// We can't control SM freeing our handles on unload.
 			// This should be safe as MHD_stop_daemon is called inside SDK_OnUnload.
 			if (error != HandleError_None && error != HandleError_Freed) {
-				smutils->LogError(myself, "Error freeing handle for connection. (%x, %d)", *handle, error);
+				smutils->LogError(myself, "Error freeing handle for connection. (%x, %d)", handle, error);
 			}
 
-			*handle = BAD_HANDLE;
+			*socket_context = nullptr;
 
 			break;
 		}
@@ -692,6 +694,8 @@ void Webcon::SDK_OnUnload()
 	MHD_destroy_response(responseNotFound);
 
 	MHD_stop_daemon(httpDaemon);
+	defaultRequestHandler = nullptr;
+	requestHandlers.clear();
 
 	handlesys->RemoveType(handleTypeResponse, myself->GetIdentity());
 	handlesys->RemoveType(handleTypeConnection, myself->GetIdentity());

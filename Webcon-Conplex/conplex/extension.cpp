@@ -1,6 +1,9 @@
 #include "extension.h"
+#include <utility>
+#include <cstdint>
+#include <cstdio>
 
-#include "CDetour/detours.h"
+#include <safetyhook.hpp>
 
 #include <fcntl.h>
 
@@ -28,9 +31,10 @@ typedef intptr_t ssize_t;
 #define MSG_NOSIGNAL 0
 #endif
 
-// tier1 supremecy
-#include "utlvector.h"
-#include "netadr.h"
+// Use the target engine SDK's containers and networking types, since
+// CSocketCreator embeds them in its engine-owned state.
+#include <tier1/utlvector.h>
+#include <tier1/netadr.h>
 
 #include "sm_namehashset.h"
 
@@ -41,8 +45,8 @@ IGameConfig *gameConfig;
 
 bool shouldHandleProcessAccept;
 
-CDetour *detourProcessAccept;
-CDetour *detourRunFrame;
+static safetyhook::InlineHook detourProcessAccept;
+static safetyhook::InlineHook detourRunFrame;
 
 #ifndef NDEBUG
 #define DEBUG_LOG rootconsole->ConsolePrint
@@ -85,15 +89,13 @@ class ProtocolHandler
 {
 public:
 	static bool matches(const char *key, const ProtocolHandler &value);
+	static uint32_t hash(const SourceMod::detail::CharsAndLength &key) { return key.hash(); }
 
 	ProtocolHandler(const char *id, IConplex::ProtocolDetectorCallback detector, IConplex::ProtocolHandlerCallback handler);
 	ProtocolHandler(const char *id, IPluginContext *context, funcid_t detector, funcid_t handler);
 	~ProtocolHandler();
 
-	// TODO: Once we update to a version of SM with modern AMTL,
-	// this needs to be converted to a move constructor.
-	// (and the copy ctor deletes below can go)
-	ProtocolHandler(ke::Moveable<ProtocolHandler> other);
+	ProtocolHandler(ProtocolHandler &&other);
 
 	ProtocolHandler(ProtocolHandler const &other) = delete;
 	ProtocolHandler &operator =(ProtocolHandler const &other) = delete;
@@ -153,16 +155,16 @@ ProtocolHandler::ProtocolHandler(const char *id, IPluginContext *context, funcid
 	this->handler.plugin->AddFunction(context, handler);
 }
 
-ProtocolHandler::ProtocolHandler(ke::Moveable<ProtocolHandler> other)
+ProtocolHandler::ProtocolHandler(ProtocolHandler &&other)
 {
-	id = other->id;
-	type = other->type;
-	owner = other->owner;
-	detector = other->detector;
-	handler = other->handler;
+	id = other.id;
+	type = other.type;
+	owner = other.owner;
+	detector = other.detector;
+	handler = other.handler;
 
-	other->id = NULL;
-	other->type = Invalid;
+	other.id = NULL;
+	other.type = Invalid;
 }
 
 ProtocolHandler::~ProtocolHandler()
@@ -265,7 +267,7 @@ bool CRConServer::HandleFailedRconAuth(const netadr_t &address)
 		return false;
 	}
 
-#ifdef _WIN32
+#if defined(_WIN32) && defined(_M_IX86)
 	return ((bool (__fastcall *)(CRConServer *, void *, const netadr_t &))CRConServer::HandleFailedRconAuthFunction)(this, NULL, address);
 #else
 	return ((bool (*)(CRConServer *, const netadr_t &))CRConServer::HandleFailedRconAuthFunction)(this, address);
@@ -361,13 +363,21 @@ bool SocketWouldBlock() {
 #endif
 }
 
-DETOUR_DECL_MEMBER0(ProcessAccept, void)
+#if defined(_WIN32) && defined(_M_IX86)
+static void __fastcall HookProcessAccept(CSocketCreator *self, void *)
+#else
+static void HookProcessAccept(CSocketCreator *self)
+#endif
 {
 	if (!shouldHandleProcessAccept) {
-		return DETOUR_MEMBER_CALL(ProcessAccept)();
+		#if defined(_WIN32) && defined(_M_IX86)
+		return detourProcessAccept.thiscall<void>(self);
+#else
+		return detourProcessAccept.call<void>(self);
+#endif
 	}
 
-	socketCreator = (CSocketCreator *)this;
+	socketCreator = self;
 
 	// Check for incoming sockets first.
 	socketCreator->ProcessAccept();
@@ -477,12 +487,20 @@ DETOUR_DECL_MEMBER0(ProcessAccept, void)
 	}
 }
 
-DETOUR_DECL_MEMBER0(RunFrame, void)
+#if defined(_WIN32) && defined(_M_IX86)
+static void __fastcall HookRunFrame(CRConServer *self, void *)
+#else
+static void HookRunFrame(CRConServer *self)
+#endif
 {
-	rconServer = (CRConServer *)this;
+	rconServer = self;
 
 	shouldHandleProcessAccept = true;
-	DETOUR_MEMBER_CALL(RunFrame)();
+	#if defined(_WIN32) && defined(_M_IX86)
+	detourRunFrame.thiscall<void>(self);
+#else
+	detourRunFrame.call<void>(self);
+#endif
 	shouldHandleProcessAccept = false;
 }
 
@@ -613,7 +631,7 @@ cell_t Conplex_RegisterProtocol(IPluginContext *context, const cell_t *params)
 	}
 
 	ProtocolHandler ph(id, context, params[2], params[3]);
-	protocolHandlers.add(i, ke::Moveable<ProtocolHandler>(ph));
+	protocolHandlers.add(i, std::move(ph));
 
 	return 1;
 }
@@ -629,63 +647,69 @@ sp_nativeinfo_t natives[] = {
 
 bool Conplex::SDK_OnLoad(char *error, size_t maxlength, bool late)
 {
-	if (!sharesys->AddInterface(myself, this))
-	{
-		strncpy(error, "Could not add IConplex interface", maxlength);
-		return false;
-	}
+    if (!gameconfs->LoadGameConfigFile("conplex.games", &gameConfig, error, maxlength))
+        return false;
 
-	if (!gameconfs->LoadGameConfigFile("conplex.games", &gameConfig, error, maxlength)) {
-		return false;
-	}
+    void *acceptAddress = nullptr;
+    void *frameAddress = nullptr;
+    // Do not intercept unrelated sockets or disable the existing failed-auth
+    // handling if a game update invalidates one of the required signatures.
+    if (!gameConfig->GetMemSig("ProcessAccept", &acceptAddress) || !acceptAddress ||
+        !gameConfig->GetMemSig("RunFrame", &frameAddress) || !frameAddress ||
+        !gameConfig->GetMemSig("HandleFailedRconAuth", &CRConServer::HandleFailedRconAuthFunction) ||
+        !CRConServer::HandleFailedRconAuthFunction) {
+        std::snprintf(error, maxlength, "Required Conplex gamedata is unavailable");
+        gameconfs->CloseGameConfigFile(gameConfig);
+        gameConfig = nullptr;
+        return false;
+    }
+    gameconfs->CloseGameConfigFile(gameConfig);
+    gameConfig = nullptr;
 
-	CDetourManager::Init(smutils->GetScriptingEngine(), gameConfig);
+    auto acceptHook = safetyhook::InlineHook::create(acceptAddress, HookProcessAccept,
+                                                     safetyhook::InlineHook::Flags::StartDisabled);
+    auto frameHook = safetyhook::InlineHook::create(frameAddress, HookRunFrame,
+                                                   safetyhook::InlineHook::Flags::StartDisabled);
+    if (!acceptHook || !frameHook) {
+        std::snprintf(error, maxlength, "Could not create Conplex hooks");
+        return false;
+    }
+    detourProcessAccept = std::move(acceptHook.value());
+    detourRunFrame = std::move(frameHook.value());
 
-	detourProcessAccept = DETOUR_CREATE_MEMBER(ProcessAccept, "ProcessAccept");
-	if (!detourProcessAccept) {
-		strncpy(error, "Error setting up ProcessAccept detour", maxlength);
-		gameconfs->CloseGameConfigFile(gameConfig);
-		return false;
-	}
-
-	detourRunFrame = DETOUR_CREATE_MEMBER(RunFrame, "RunFrame");
-	if (!detourRunFrame) {
-		shouldHandleProcessAccept = true;
-		smutils->LogError(myself, "WARNING: Error setting up RunFrame detour, all TCP sockets will be hooked.");
-	}
-
-	if (!gameConfig->GetMemSig("HandleFailedRconAuth", &CRConServer::HandleFailedRconAuthFunction)) {
-		smutils->LogError(myself, "WARNING: HandleFailedRconAuth not found in gamedata, bad clients will not be banned.");
-	} else if (!CRConServer::HandleFailedRconAuthFunction) {
-		smutils->LogError(myself, "WARNING: Scan for HandleFailedRconAuth failed, bad clients will not be banned.");
-	}
-
-	detourProcessAccept->EnableDetour();
-
-	if (detourRunFrame) {
-		detourRunFrame->EnableDetour();
-	}
-
-	handleTypeSocket = handlesys->CreateType("ConplexSocket", &handlerSocketType, 0, NULL, NULL, myself->GetIdentity(), NULL);
-
-	sharesys->AddNatives(myself, natives);
-
-	RegisterProtocolHandler("RCon", ConplexRConDetector, ConplexRConHandler);
-
-	return true;
+    handleTypeSocket = handlesys->CreateType("ConplexSocket", &handlerSocketType, 0, NULL, NULL,
+                                             myself->GetIdentity(), NULL);
+    if (!handleTypeSocket || !RegisterProtocolHandler("RCon", ConplexRConDetector, ConplexRConHandler) ||
+        !detourRunFrame.enable() || !detourProcessAccept.enable()) {
+        SDK_OnUnload();
+        std::snprintf(error, maxlength, "Could not initialize Conplex");
+        return false;
+    }
+    if (!sharesys->AddInterface(myself, this)) {
+        SDK_OnUnload();
+        std::snprintf(error, maxlength, "Could not add IConplex interface");
+        return false;
+    }
+    sharesys->AddNatives(myself, natives);
+    return true;
 }
 
 void Conplex::SDK_OnUnload()
 {
-	handlesys->RemoveType(handleTypeSocket, myself->GetIdentity());
-
-	if (detourRunFrame) {
-		detourRunFrame->DisableDetour();
-	}
-
-	detourProcessAccept->DisableDetour();
-
-	gameconfs->CloseGameConfigFile(gameConfig);
+    detourProcessAccept.reset();
+    detourRunFrame.reset();
+    for (int i = 0; i < pendingSockets.Count(); ++i)
+        closesocket(pendingSockets[i].socket);
+    pendingSockets.RemoveAll();
+    protocolHandlers.clear();
+    if (handleTypeSocket) {
+        handlesys->RemoveType(handleTypeSocket, myself->GetIdentity());
+        handleTypeSocket = 0;
+    }
+    socketCreator = nullptr;
+    rconServer = nullptr;
+    shouldHandleProcessAccept = false;
+    CRConServer::HandleFailedRconAuthFunction = nullptr;
 }
 
 unsigned int Conplex::GetInterfaceVersion()
@@ -712,7 +736,7 @@ bool Conplex::RegisterProtocolHandler(const char *id, ProtocolDetectorCallback d
 	}
 
 	ProtocolHandler ph(id, detector, handler);
-	return protocolHandlers.add(i, ke::Moveable<ProtocolHandler>(ph));
+	return protocolHandlers.add(i, std::move(ph));
 }
 
 bool Conplex::DropProtocolHandler(const char *id)

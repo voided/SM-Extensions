@@ -9,6 +9,9 @@ on:
       - '.github/workflows/_extension-ci.yml'
       - '.github/scripts/**'
       - 'build-support/**'
+      - '.gitmodules'
+      - 'third_party/safetyhook'
+      - 'third_party/safetyhook/**'
   pull_request:
     branches: [main, 'feature/**']
     paths:
@@ -17,6 +20,9 @@ on:
       - '.github/workflows/_extension-ci.yml'
       - '.github/scripts/**'
       - 'build-support/**'
+      - '.gitmodules'
+      - 'third_party/safetyhook'
+      - 'third_party/safetyhook/**'
   workflow_dispatch:
 
 permissions:
@@ -30,4 +36,5 @@ jobs:
     with:
       project: ConsoleCleaner
       sdk: true
+      submodule: third_party/safetyhook
       metamod: true

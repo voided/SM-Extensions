@@ -158,16 +158,19 @@ jobs:
           if [ "$USE_SDK" = true ]; then
             git clone --depth 1 --branch tf2 https://github.com/alliedmodders/hl2sdk.git deps/hl2sdk-tf2
           fi
+      - name: Build static GNU libmicrohttpd
+        if: inputs.project == 'Webcon'
+        env:
+          BUILD_OS_NAME: ${{ matrix.target.os_name }}
+        run: |
+          "$PYTHON" .github/scripts/build_microhttpd.py --root deps/microhttpd --arch "$ARCH" --platform "$BUILD_OS_NAME"
       - name: Build with AMBuild 2
         run: |
           "$PYTHON" .github/scripts/build_extension.py build "$PROJECT" --arch "$ARCH"
       - name: Resolve package directory
         id: package
         run: |
-          package="$PROJECT/build/package"
-          if [ "$PROJECT" = LoadSoundScript ]; then
-            package="$PROJECT/build/loadsoundscript"
-          fi
+          package=$("$PYTHON" .github/scripts/build_extension.py package "$PROJECT")
           echo "path=$package" >> "$GITHUB_OUTPUT"
       - name: Download bundled plugin
         if: inputs.plugin != ''

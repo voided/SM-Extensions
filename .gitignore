@@ -1,7 +1,4 @@
 /.ci-local/
-/ConsoleCleaner/safetyhook/
-/Connect/safetyhook/
-/TFMaxSpeedDetour/safetyhook/
 /*/build/
 /deps/
 /artifacts/

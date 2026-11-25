@@ -1,0 +1,40 @@
+name: Conplex CI
+
+on:
+  push:
+    branches: [main, 'feature/**']
+    paths:
+      - 'Webcon-Conplex/**'
+      - '.github/workflows/conplex.yml'
+      - '.github/workflows/_extension-ci.yml'
+      - '.github/scripts/**'
+      - 'build-support/**'
+      - '.gitmodules'
+      - 'third_party/safetyhook'
+      - 'third_party/safetyhook/**'
+  pull_request:
+    branches: [main, 'feature/**']
+    paths:
+      - 'Webcon-Conplex/**'
+      - '.github/workflows/conplex.yml'
+      - '.github/workflows/_extension-ci.yml'
+      - '.github/scripts/**'
+      - 'build-support/**'
+      - '.gitmodules'
+      - 'third_party/safetyhook'
+      - 'third_party/safetyhook/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/_extension-ci.yml
+    permissions:
+      contents: write
+    with:
+      project: Conplex
+      sdk: true
+      submodule: third_party/safetyhook
+      platforms: '[{"os_name":"linux","runner":"ubuntu-latest","container":"ghcr.io/alliedmodders/build-containers/debian11-clang22:latest","python":"python3"}]'

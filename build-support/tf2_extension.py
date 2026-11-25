@@ -1,11 +1,10 @@
 """AMBuild 2.2 support for simple, legacy TF2 extensions."""
 import os
-import shutil
 from pathlib import Path
-from types import SimpleNamespace
+from safetyhook import build_safetyhook
 
 
-def configure(builder, name, sources, files, *, detours=False, config_dir='.'):
+def configure(builder, name, sources, files, *, detours=False, safetyhook=False, config_dir='.'):
     root = Path(builder.sourcePath)
     sm = Path(builder.options.sm_path).resolve()
     mms = Path(builder.options.mms_path).resolve()
@@ -38,14 +37,9 @@ def configure(builder, name, sources, files, *, detours=False, config_dir='.'):
         cxx.defines += ['DEBUG', '_DEBUG'] if builder.options.debug else ['NDEBUG']
 
     safetyhook_tasks = []
-    if detours:
-        # Use the matching SourceMod SDK's CDetour implementation and dependencies.
-        # Build in an isolated copy, as the upstream SafetyHook AMBuilder is relative to its source directory.
-        safetyhook = root / 'safetyhook'
-        shutil.copytree(sm / 'public/safetyhook', safetyhook, dirs_exist_ok=True)
-        shim = SimpleNamespace(all_targets=targets, libsafetyhook=[])
-        builder.Build('safetyhook/AMBuilder', {'SafetyHook': shim})
-        safetyhook_tasks = shim.libsafetyhook
+    if detours or safetyhook:
+        builder.AddConfigureFile(str(root.parent / 'build-support/safetyhook.py'))
+        safetyhook_include, safetyhook_tasks = build_safetyhook(builder, targets)
 
     project = builder.LibraryProject(name)
     project.sources += [str(root / s) for s in sources]
@@ -63,8 +57,8 @@ def configure(builder, name, sources, files, *, detours=False, config_dir='.'):
             sm / 'public/amtl', sm / 'public/amtl/amtl', sm / 'sourcepawn/include',
             mms / 'core', mms / 'core/sourcehook',
         )]
-        if detours:
-            compiler.cxxincludes += [str(root / 'safetyhook/include')]
+        if detours or safetyhook:
+            compiler.cxxincludes += [safetyhook_include]
             compiler.linkflags += [next(task.binary for task in safetyhook_tasks if task.target.arch == cxx.target.arch)]
     binaries = builder.Add(project)
 

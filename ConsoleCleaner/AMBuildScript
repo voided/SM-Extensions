@@ -1,5 +1,5 @@
 # vim: set sts=2 ts=8 sw=2 tw=99 et ft=python:
-import os, sys, shutil
+import os, sys
 
 def ResolveEnvPath(env, folder):
   if env in os.environ:
@@ -420,7 +420,7 @@ class ExtensionConfig(object):
     
     if os.path.exists(os.path.join(sm_public_path, 'safetyhook')):
       binary.sources += [ os.path.join(sm_public_path, 'CDetour', 'detours.cpp') ]
-      binary.compiler.cxxincludes += [ os.path.join(builder.sourcePath, 'safetyhook', 'include') ]
+      binary.compiler.cxxincludes += [ self.safetyhook_include ]
 
       for task in self.libsafetyhook:
         if task.target.arch == binary.compiler.target.arch:
@@ -464,11 +464,6 @@ class ExtensionConfig(object):
     self.ConfigureForExtension(context, binary.compiler)
     return binary
 
-class SafetyHookShim(object):
-  def __init__(self):
-    self.all_targets = {}
-    self.libsafetyhook = {}
-
 if getattr(builder, 'target', None) is not None:
     sys.stderr.write("Your output folder was configured for AMBuild 2.1.\n")
     sys.stderr.write("Please remove your output folder and reconfigure to continue.\n")
@@ -479,14 +474,11 @@ Extension.detectSDKs()
 Extension.configure()
 
 if os.path.exists(os.path.join(Extension.sm_root, 'public', 'safetyhook')):
-    # we need to pull safetyhook in locally because ambuild does not take kindly to outside relpaths
-    safetyhook_dest = Normalize(builder.sourcePath + '/safetyhook/')
-    shutil.copytree(os.path.join(Extension.sm_root, 'public', 'safetyhook'), safetyhook_dest, dirs_exist_ok=True)
-
-    SafetyHook = SafetyHookShim()
-    SafetyHook.all_targets = Extension.all_targets
-    builder.Build('safetyhook/AMBuilder', {'SafetyHook': SafetyHook })
-    Extension.libsafetyhook = SafetyHook.libsafetyhook
+    support = Normalize(os.path.join(builder.sourcePath, '..', 'build-support'))
+    builder.AddConfigureFile(os.path.join(support, 'safetyhook.py'))
+    sys.path.insert(0, support)
+    from safetyhook import build_safetyhook
+    Extension.safetyhook_include, Extension.libsafetyhook = build_safetyhook(builder, Extension.all_targets)
 
 # This will clone the list and each cxx object as we recurse, preventing child
 # scripts from messing up global state.

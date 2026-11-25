@@ -1,21 +1,13 @@
-# vim: set ts=2 sw=2 tw=99 noet:
+#!/usr/bin/env python3
 import sys
-try:
-	from ambuild2 import run
-except:
-	try:
-		import ambuild
-		sys.stderr.write('It looks like you have AMBuild 1 installed, but this project uses AMBuild 2.\n')
-		sys.stderr.write('Upgrade to the latest version of AMBuild to continue.\n')
-	except:
-		sys.stderr.write('AMBuild must be installed to build this project.\n')
-		sys.stderr.write('http://www.alliedmods.net/ambuild\n')
-	sys.exit(1)
+from ambuild2 import run
 
-run = run.PrepareBuild(sourcePath=sys.path[0])
-run.default_build_folder = 'obj-' + run.target_platform
-run.options.add_option('--sm-path', type=str, dest='sm_path', default=None, help='Path to SourceMod')
-run.options.add_option('--enable-debug', action='store_const', const='1', dest='debug', help='Enable debugging symbols')
-run.options.add_option('--enable-optimize', action='store_const', const='1', dest='opt', help='Enable optimization')
-
-run.Configure()
+parser = run.BuildParser(sourcePath=sys.path[0], api='2.2')
+parser.options.add_argument('--sm-path', required=True, help='Path to SourceMod')
+parser.options.add_argument('--component', choices=('conplex', 'webcon'), required=True)
+parser.options.add_argument('--hl2sdk-root', help='Directory containing AlliedModders hl2sdk-tf2 (required for Conplex)')
+parser.options.add_argument('--microhttpd-root', help='Directory containing per-architecture static libmicrohttpd installations')
+parser.options.add_argument('--targets', default='x86,x86_64')
+parser.options.add_argument('--enable-debug', action='store_true', dest='debug')
+parser.options.add_argument('--enable-optimize', action='store_true', dest='opt')
+parser.Configure()

@@ -1,0 +1,12 @@
+import sys
+from pathlib import Path
+
+support = Path(builder.sourcePath).parent / 'build-support'
+builder.AddConfigureFile(str(support / 'tf2_extension.py'))
+sys.path.insert(0, str(support))
+from tf2_extension import configure
+
+configure(builder, 'poseparameter_fix', ['extension/extension.cpp'], {
+    'extensions': ['addons/sourcemod/extensions/poseparameter_fix.autoload'],
+    'gamedata': ['addons/sourcemod/gamedata/poseparameter_fix.txt'],
+}, safetyhook=True, config_dir='extension')

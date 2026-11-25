@@ -1,0 +1,40 @@
+name: PoseParameterFix CI
+
+on:
+  push:
+    branches: [main, 'feature/**']
+    paths:
+      - 'PoseParameterFix/**'
+      - '.github/workflows/pose-parameter-fix.yml'
+      - '.github/workflows/_extension-ci.yml'
+      - '.github/scripts/**'
+      - 'build-support/**'
+      - '.gitmodules'
+      - 'third_party/safetyhook'
+      - 'third_party/safetyhook/**'
+  pull_request:
+    branches: [main, 'feature/**']
+    paths:
+      - 'PoseParameterFix/**'
+      - '.github/workflows/pose-parameter-fix.yml'
+      - '.github/workflows/_extension-ci.yml'
+      - '.github/scripts/**'
+      - 'build-support/**'
+      - '.gitmodules'
+      - 'third_party/safetyhook'
+      - 'third_party/safetyhook/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/_extension-ci.yml
+    permissions:
+      contents: write
+    with:
+      project: PoseParameterFix
+      sdk: true
+      submodule: third_party/safetyhook
+      metamod: true

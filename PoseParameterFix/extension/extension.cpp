@@ -1,104 +1,62 @@
 #include "extension.h"
-#include "CDetour/detours.h"
+#include <studio.h>
+#include <safetyhook.hpp>
+#include <cstdio>
+#include <utility>
 
-IGameConfig *g_pGameConf = nullptr;
-CDetour *g_pdGetSharedPoseParameter = nullptr;
-
+static safetyhook::InlineHook poseParameterHook;
 SMExt g_Ext;
 SMEXT_LINK(&g_Ext);
 
-class virtualgroup_t 
+// Modern TF2 already validates the pose and group. Guard the sequence before
+// calling the original implementation, retaining its return-value semantics.
+#if defined(_WIN32) && defined(_M_IX86)
+static int __fastcall GetSharedPoseParameter(const CStudioHdr *studio, void *, int sequence, int localPose)
+#else
+static int GetSharedPoseParameter(const CStudioHdr *studio, int sequence, int localPose)
+#endif
 {
-public:
-	void *cache;
-	CUtlVector< int > boneMap;				// maps global bone to local bone
-	CUtlVector< int > masterBone;			// maps local bone to global bone
-	CUtlVector< int > masterSeq;			// maps local sequence to master sequence
-	CUtlVector< int > masterAnim;			// maps local animation to master animation
-	CUtlVector< int > masterAttachment;	// maps local attachment to global
-	CUtlVector< int > masterPose;			// maps local pose parameter to global
-	CUtlVector< int > masterNode;			// maps local transition nodes to global
-};
+    const virtualmodel_t *model = studio->GetVirtualModel();
+    if (model && localPose != -1 && !model->m_seq.IsValidIndex(sequence))
+        return -1;
 
-struct virtualsequence_t
-{
-	int	flags;
-	int activity;
-	int group;
-	int index;
-};
-
-struct virtualgeneric_t
-{
-	int group;
-	int index;
-};
-
-struct virtualmodel_t
-{
-    CThreadFastMutex m_Lock;
-	CUtlVector<virtualsequence_t> m_seq;
-	CUtlVector< virtualgeneric_t > m_anim;
-	CUtlVector< virtualgeneric_t > m_attachment;
-	CUtlVector< virtualgeneric_t > m_pose;
-	CUtlVector< virtualgroup_t > m_group;
-};
-
-class CStudioHdr
-{
-public:
-	void *m_pStudioHdr;
-	mutable virtualmodel_t *m_pVModel;
-	
-	int GetSharedPoseParameter(int iSequence, int iLocalPose);
-};
-
-int CStudioHdr::GetSharedPoseParameter(int iSequence, int iLocalPose)
-{
-	if (m_pVModel == NULL)
-	{
-		return iLocalPose;
-	}
-
-	if (iLocalPose == -1)
-		return iLocalPose;
-	
-	if (!m_pVModel->m_seq.IsValidIndex(iSequence))
-		return iLocalPose;
-	
-	int group = m_pVModel->m_seq[iSequence].group;
-	virtualgroup_t *pGroup = m_pVModel->m_group.IsValidIndex( group ) ? &m_pVModel->m_group[ group ] : NULL;
-
-	return (pGroup && pGroup->masterPose.IsValidIndex( iLocalPose )) ? pGroup->masterPose[iLocalPose] : iLocalPose;
-}
-
-DETOUR_DECL_MEMBER2(CStudioHdr_GetSharedPoseParameter, int, int, iSequence, int, iLocalPose)
-{
-	CStudioHdr *studio = reinterpret_cast<CStudioHdr *>(this);
-	return studio->GetSharedPoseParameter(iSequence, iLocalPose);
+#if defined(_WIN32) && defined(_M_IX86)
+    return poseParameterHook.thiscall<int>(studio, sequence, localPose);
+#else
+    return poseParameterHook.call<int>(studio, sequence, localPose);
+#endif
 }
 
 bool SMExt::SDK_OnLoad(char *error, size_t maxlength, bool late)
 {
-	char conf_error[255];
-	if(!gameconfs->LoadGameConfigFile("poseparameter_fix", &g_pGameConf, conf_error, sizeof(conf_error)))
-	{
-		snprintf(error, maxlength, "FAILED TO LOAD GAMEDATA ERROR: %s", conf_error);
-		return false;
-	}
-	
-	CDetourManager::Init(g_pSM->GetScriptingEngine(), g_pGameConf);
-	
-	g_pdGetSharedPoseParameter = DETOUR_CREATE_MEMBER(CStudioHdr_GetSharedPoseParameter, "CStudioHdr::GetSharedPoseParameter");
-	if (g_pdGetSharedPoseParameter != NULL)
-		g_pdGetSharedPoseParameter->EnableDetour();
-	
-	return true;
+    IGameConfig *config = nullptr;
+    if (!gameconfs->LoadGameConfigFile("poseparameter_fix", &config, error, maxlength))
+        return false;
+
+    void *address = nullptr;
+    const bool found = config->GetMemSig("CStudioHdr::GetSharedPoseParameter", &address);
+    gameconfs->CloseGameConfigFile(config);
+    if (!found || !address) {
+        std::snprintf(error, maxlength, "Could not resolve CStudioHdr::GetSharedPoseParameter");
+        return false;
+    }
+
+    auto hook = safetyhook::InlineHook::create(address, GetSharedPoseParameter,
+                                              safetyhook::InlineHook::Flags::StartDisabled);
+    if (!hook) {
+        std::snprintf(error, maxlength, "Could not create pose parameter hook");
+        return false;
+    }
+    poseParameterHook = std::move(hook.value());
+    if (!poseParameterHook.enable()) {
+        poseParameterHook.reset();
+        std::snprintf(error, maxlength, "Could not enable pose parameter hook");
+        return false;
+    }
+    return true;
 }
 
 void SMExt::SDK_OnUnload()
 {
-	gameconfs->CloseGameConfigFile(g_pGameConf);
-	
-	if (g_pdGetSharedPoseParameter != NULL) g_pdGetSharedPoseParameter->Destroy();
+    poseParameterHook.reset();
 }

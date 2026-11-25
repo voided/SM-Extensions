@@ -62,6 +62,12 @@ class PackageTests(unittest.TestCase):
                 self.assertIn('addons/sourcemod/extensions/sourcescramble.ext.dll', file.namelist())
                 self.assertNotIn('addons/sourcemod/extensions/x64/sourcescramble.ext.dll', file.namelist())
 
+    def test_linux_only_archives(self):
+        self.platforms = ['linux']
+        self.assemble()
+        self.assertEqual(len(list(self.output.iterdir())), 2)
+        self.assertTrue(all(path.name.endswith('.tar.gz') for path in self.output.iterdir()))
+
     def test_missing_binary_fails_release(self):
         (self.package('1.12', 'linux', 'x86') / 'extensions/sourcescramble.ext.so').unlink()
         with self.assertRaises(FileNotFoundError):

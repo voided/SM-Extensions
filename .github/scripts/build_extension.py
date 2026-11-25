@@ -10,6 +10,14 @@ from pathlib import Path
 # The native-architecture build and package specifics live here, keeping workflow
 # wrappers small while letting each project retain its own AMBuild configuration.
 PROJECTS = {
+    'PoseParameterFix': dict(binary='poseparameter_fix.ext.2.tf2', version='extension/smsdk_config.h', sdk='legacy',
+                             files=['gamedata/poseparameter_fix.txt', 'extensions/poseparameter_fix.autoload']),
+    'Conplex': dict(directory='Webcon-Conplex', component='conplex', binary='conplex.ext',
+                    version='conplex/smsdk_config.h', deps=False, sdk='legacy',
+                    files=['gamedata/conplex.games.txt', 'scripting/include/conplex.inc']),
+    'Webcon': dict(directory='Webcon-Conplex', component='webcon', binary='webcon.ext',
+                   version='webcon/smsdk_config.h', deps=False,
+                   files=['scripting/include/webcon.inc']),
     'Accelerator': dict(binary='accelerator.ext', version='product.version', deps=False,
                         files=['gamedata/accelerator.games.txt', 'extensions/accelerator.autoload',
                                'scripting/include/accelerator.inc']),
@@ -36,8 +44,19 @@ PROJECTS = {
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def project_path(project):
+    return ROOT / PROJECTS[project].get('directory', project)
+
+
+def default_build_path(project):
+    path = project_path(project) / 'build'
+    if 'component' in PROJECTS[project]:
+        path /= PROJECTS[project]['component']
+    return path
+
+
 def version(project):
-    file = ROOT / project / PROJECTS[project]['version']
+    file = project_path(project) / PROJECTS[project]['version']
     content = file.read_text(encoding='utf-8-sig')
     if file.name == 'product.version':
         base = content.strip()
@@ -74,7 +93,7 @@ def verify(project, package, arch, platform):
 
 def build(project, output, deps, arch):
     meta = PROJECTS[project]
-    source = ROOT / project
+    source = project_path(project)
     sm = deps / 'sourcemod'
     args = [sys.executable, str(source / 'configure.py'), '--sm-path', str(sm),
             '--enable-optimize', '--targets', arch]
@@ -93,6 +112,10 @@ def build(project, output, deps, arch):
         args += ['--no-plugins']  # Same-version plugin is built once in the plugin matrix.
     if meta.get('auto_version'):
         args += ['--enable-auto-versioning']
+    if 'component' in meta:
+        args += ['--component', meta['component']]
+        if project == 'Webcon':
+            args += ['--microhttpd-root', str(deps / 'microhttpd')]
     output.mkdir(parents=True, exist_ok=True)
     subprocess.run(args, cwd=output, check=True)
     subprocess.run(['ambuild'], cwd=output, check=True)
@@ -101,7 +124,7 @@ def build(project, output, deps, arch):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('command', choices=('version', 'build', 'verify'))
+    parser.add_argument('command', choices=('version', 'build', 'verify', 'package'))
     parser.add_argument('project', choices=PROJECTS)
     parser.add_argument('--deps', type=Path, default=ROOT / 'deps')
     parser.add_argument('--output', type=Path)
@@ -111,9 +134,12 @@ def main():
     if args.command == 'version':
         print(version(args.project))
         return
+    output = (args.output or default_build_path(args.project)).resolve()
+    if args.command == 'package':
+        print(package_path(args.project, output).relative_to(ROOT).as_posix())
+        return
     if not args.arch:
         parser.error('--arch is required for build and verify')
-    output = (args.output or ROOT / args.project / 'build').resolve()
     if args.command == 'build':
         build(args.project, output, args.deps.resolve(), args.arch)
     else:

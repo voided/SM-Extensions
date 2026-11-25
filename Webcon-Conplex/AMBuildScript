@@ -1,204 +1,94 @@
-# vim: set sts=2 ts=8 sw=2 tw=99 et ft=python:
-import os, sys
+import os
+import sys
+from pathlib import Path
 
-def ResolveEnvPath(env, folder):
-  if env in os.environ:
-    path = os.environ[env]
-    if os.path.isdir(path):
-      return path
-    return None
+root = Path(builder.sourcePath)
+sm = Path(builder.options.sm_path).resolve()
+component = builder.options.component
+targets = [builder.DetectCxx(target_arch=arch) for arch in builder.options.targets.split(',')]
 
-  head = os.getcwd()
-  oldhead = None
-  while head != None and head != oldhead:
-    path = os.path.join(head, folder)
-    if os.path.isdir(path):
-      return path
-    oldhead = head
-    head, tail = os.path.split(head)
-
-  return None
-
-def Normalize(path):
-  return os.path.abspath(os.path.normpath(path))
-
-class WebconConfig(object):
-  def __init__(self):
-    self.sdks = {}
-    self.binaries = []
-    self.sm_root = None
-    self.extensions = []
-
-  @property
-  def tag(self):
-    if builder.options.debug == '1':
-      return 'Debug'
-    return 'Release'
-
-  def detectSDKs(self):
-    if builder.options.sm_path:
-      self.sm_root = builder.options.sm_path
-    else:
-      self.sm_root = ResolveEnvPath('SOURCEMOD17', 'sourcemod-1.7')
-      if not self.sm_root:
-        self.sm_root = ResolveEnvPath('SOURCEMOD', 'sourcemod')
-      if not self.sm_root:
-        self.sm_root = ResolveEnvPath('SMCENTRAL', 'sourcemod-central')
-
-    if not self.sm_root or not os.path.isdir(self.sm_root):
-      raise Exception('Could not find a source copy of Sourcemod')
-    self.sm_root = Normalize(self.sm_root)
-
-  def configure(self):
-    builder.AddConfigureFile('pushbuild.txt')
-
-    cxx = builder.DetectCompilers()
-
+for cxx in targets:
     if cxx.like('gcc'):
-      cxx.defines += [
-        'stricmp=strcasecmp',
-        '_stricmp=strcasecmp',
-        '_snprintf=snprintf',
-        '_vsnprintf=vsnprintf',
-        'HAVE_STDINT_H',
-        'GNUC',
-      ]
-      cxx.cflags += [
-        '-pipe',
-        '-fno-strict-aliasing',
-        '-Wall',
-        '-Werror',
-        '-Wno-unused',
-        '-Wno-switch',
-        '-msse',
-        '-m32',
-      ]
-      cxx.cxxflags += [
-          '-std=c++11',
-      ]
+        cxx.defines += ['HAVE_STDINT_H', '_LINUX']
+        cxx.cflags += ['-pipe', '-fPIC', '-fno-strict-aliasing', '-fvisibility=hidden']
+        cxx.cxxflags += ['-std=c++17', '-fvisibility-inlines-hidden']
+        cxx.linkflags += ['-static-libgcc', '-static-libstdc++']
+        if builder.options.debug:
+            cxx.cflags += ['-g']
+        if builder.options.opt:
+            cxx.cflags += ['-O3']
+    elif cxx.like('msvc'):
+        cxx.defines += ['WIN32', '_CRT_SECURE_NO_WARNINGS', '_CRT_NONSTDC_NO_WARNINGS', '_ITERATOR_DEBUG_LEVEL=0']
+        cxx.cflags += ['/W3', '/MTd' if builder.options.debug else '/MT']
+        cxx.cxxflags += ['/EHsc', '/std:c++17']
+        if builder.options.debug:
+            cxx.cflags += ['/Zi']
+            cxx.linkflags += ['/DEBUG']
+        if builder.options.opt:
+            cxx.cflags += ['/Ox']
+    cxx.defines += ['DEBUG', '_DEBUG'] if builder.options.debug else ['NDEBUG']
 
-      have_gcc = cxx.vendor == 'gcc'
-      have_clang = cxx.vendor == 'clang'
-      if have_clang or (have_gcc and cxx.version >= '4'):
-        cxx.cflags += ['-fvisibility=hidden']
-        cxx.cxxflags += ['-fvisibility-inlines-hidden']
-        if have_clang or (have_gcc and cxx.version >= '4.6'):
-          cxx.cflags += ['-Wno-narrowing']
-        if (have_gcc and cxx.version >= '4.7') or (have_clang and cxx.version >= '3'):
-          cxx.cxxflags += ['-Wno-delete-non-virtual-dtor']
-        if have_gcc and cxx.version >= '4.8':
-          cxx.cflags += ['-Wno-unused-result']
-      if have_clang:
-        cxx.cxxflags += ['-Wno-implicit-exception-spec-mismatch']
-        if (builder.target_platform == 'mac' and cxx.version >= '5.1') or cxx.version >= '3.4':
-          cxx.cxxflags += ['-Wno-deprecated-register']
+safetyhook_tasks = []
+if component == 'conplex':
+    if not builder.options.hl2sdk_root:
+        raise ValueError('--hl2sdk-root is required for Conplex')
+    sdk_root = Path(builder.options.hl2sdk_root).resolve()
+    helpers = builder.Eval(str(sm / 'hl2sdk-manifests/SdkHelpers.ambuild'), {'Project': 'sm-extension'})
+    helpers.find_sdk_path = lambda name: str(sdk_root / ('hl2sdk-' + name))
+    helpers.findSdks(builder, targets, ['tf2'])
+    sdk = helpers.sdks['tf2']
+    support = root.parent / 'build-support'
+    builder.AddConfigureFile(str(support / 'safetyhook.py'))
+    sys.path.insert(0, str(support))
+    from safetyhook import build_safetyhook
+    safetyhook_include, safetyhook_tasks = build_safetyhook(builder, targets)
+
+project = builder.LibraryProject(component + '.ext')
+project.sources += [str(root / component / 'extension.cpp'), str(sm / 'public/smsdk_ext.cpp')]
+for cxx in targets:
+    binary = project.Configure(cxx, component + '.ext', cxx.target.arch)
+    compiler = binary.compiler
+    compiler.defines += ['SOURCEMOD_BUILD']
+    compiler.cxxincludes += [str(p) for p in (
+        root / component, root / 'conplex/public',
+        sm / 'public', sm / 'public/extensions', sm / 'public/amtl',
+        sm / 'public/amtl/amtl', sm / 'sourcepawn/include',
+    )]
+    if component == 'conplex':
+        compiler.defines += ['SE_{}={}'.format(item['define'], item['code']) for item in helpers.sdk_manifests]
+        helpers.configureCxx(builder, binary, sdk)
+        compiler.cxxincludes += [safetyhook_include]
+        compiler.linkflags += [next(task.binary for task in safetyhook_tasks if task.target.arch == cxx.target.arch)]
+    else:
+        if not builder.options.microhttpd_root:
+            raise ValueError('--microhttpd-root is required for Webcon')
+        prefix = Path(builder.options.microhttpd_root).resolve() / cxx.target.arch
+        archive = prefix / 'lib' / ('libmicrohttpd.lib' if cxx.target.platform == 'windows' else 'libmicrohttpd.a')
+        if not archive.is_file():
+            raise FileNotFoundError(f'No static libmicrohttpd at {archive}')
+        compiler.cxxincludes += [str(prefix / 'include')]
+        compiler.postlink += [str(archive)]
+        if cxx.target.platform == 'windows':
+            compiler.defines += ['MHD_W32LIB']
         else:
-          cxx.cxxflags += ['-Wno-deprecated']
-        cxx.cflags += ['-Wno-sometimes-uninitialized']
+            compiler.linkflags += ['-pthread']
+    if cxx.target.platform == 'windows':
+        compiler.linkflags += ['ws2_32.lib']
 
-      cxx.linkflags += ['-m32']
-      cxx.cxxflags += [
-        '-fno-exceptions',
-        '-fno-threadsafe-statics',
-        '-Wno-non-virtual-dtor',
-        '-Wno-overloaded-virtual',
-      ]
-
-      if have_gcc:
-        cxx.cflags += ['-mfpmath=sse']
-    elif cxx.vendor == 'msvc':
-      if builder.options.debug == '1':
-        cxx.cflags += ['/MTd']
-        cxx.linkflags += ['/NODEFAULTLIB:libcmt']
-      else:
-        cxx.cflags += ['/MT']
-      cxx.defines += [
-        '_CRT_SECURE_NO_DEPRECATE',
-        '_CRT_SECURE_NO_WARNINGS',
-        '_CRT_NONSTDC_NO_DEPRECATE',
-        '_ITERATOR_DEBUG_LEVEL=0',
-      ]
-      cxx.cflags += [
-        '/W3',
-      ]
-      cxx.cxxflags += [
-        '/EHsc',
-        '/GR-',
-        '/TP',
-      ]
-      cxx.linkflags += [
-        '/MACHINE:X86',
-        '/SUBSYSTEM:WINDOWS',
-        'kernel32.lib',
-        'user32.lib',
-        'gdi32.lib',
-        'winspool.lib',
-        'comdlg32.lib',
-        'advapi32.lib',
-        'shell32.lib',
-        'ole32.lib',
-        'oleaut32.lib',
-        'uuid.lib',
-        'odbc32.lib',
-        'odbccp32.lib',
-      ] 
-
-    # Optimization
-    if builder.options.opt == '1':
-      cxx.defines += ['NDEBUG']
-      if cxx.like('gcc'):
-        cxx.cflags += ['-O3']
-      elif cxx.like('msvc'):
-        cxx.cflags += ['/Ox']
-        cxx.linkflags += ['/OPT:ICF', '/OPT:REF']
-
-    # Debugging
-    if builder.options.debug == '1':
-      cxx.defines += ['DEBUG', '_DEBUG']
-      if cxx.like('msvc'):
-        cxx.cflags += ['/Od', '/RTC1']
-        if cxx.version >= 1600:
-          cxx.cflags += ['/d2Zi+']
-
-    # This needs to be after our optimization flags which could otherwise disable it.
-    if cxx.vendor == 'msvc':
-      # Don't omit the frame pointer.
-      cxx.cflags += ['/Oy-']
-
-    # Platform-specifics
-    if builder.target_platform == 'linux':
-      cxx.defines += ['_LINUX', 'POSIX']
-      cxx.linkflags += ['-lrt']
-      if cxx.vendor == 'gcc':
-        cxx.linkflags += ['-static-libgcc']
-      elif cxx.vendor == 'clang':
-        cxx.linkflags += ['-lgcc_eh']
-    elif builder.target_platform == 'mac':
-      cxx.defines += ['OSX', '_OSX', 'POSIX']
-      cxx.cflags += ['-mmacosx-version-min=10.5']
-      cxx.linkflags += [
-        '-mmacosx-version-min=10.5',
-        '-arch', 'i386',
-        '-lstdc++',
-        '-stdlib=libstdc++',
-      ]
-      cxx.cxxflags += ['-stdlib=libstdc++']
-    elif builder.target_platform == 'windows':
-      cxx.defines += ['WIN32', '_WINDOWS']
-	  
-  def ConfigureForExtension(self, context, compiler):
-    compiler.cxxincludes += [
-      os.path.join(context.currentSourcePath),
-      os.path.join(self.sm_root, 'public'),
-      os.path.join(self.sm_root, 'public', 'amtl'),
-      os.path.join(self.sm_root, 'public', 'extensions'),
-      os.path.join(self.sm_root, 'public', 'sourcepawn'),
-    ]
-    return compiler
-
-Webcon = WebconConfig()
-Webcon.detectSDKs()
-Webcon.configure()
-
-builder.RunBuildScripts(['conplex/AMBuilder', 'webcon/AMBuilder'], { 'Webcon': Webcon })
-builder.RunScript('PackageScript', { 'Webcon': Webcon })
+binaries = builder.Add(project)
+builder.SetBuildFolder('package')
+files = {'scripting/include': [f'{component}/{component}.inc']}
+if component == 'conplex':
+    files['gamedata'] = ['conplex/conplex.games.txt']
+else:
+    files['scripting'] = ['webcon/webcon.sp', 'samples/scoreboard/webscoreboard.sp',
+                         'samples/manager/webmanager.sp', 'samples/irc/irc.sp']
+    files['configs/web/scoreboard'] = ['samples/scoreboard/index.html', 'samples/scoreboard/background.jpg',
+                                      'samples/scoreboard/classes.png', 'samples/scoreboard/tf2.ttf']
+for folder, paths in files.items():
+    output = builder.AddFolder(os.path.join('addons/sourcemod', folder))
+    for path in paths:
+        builder.AddCopy(str(root / path), output)
+for binary in binaries:
+    folder = 'addons/sourcemod/extensions' + ('/x64' if binary.target.arch == 'x86_64' else '')
+    builder.AddCopy(binary.binary, builder.AddFolder(folder))
