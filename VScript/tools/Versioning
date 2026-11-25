@@ -18,15 +18,22 @@ outputs = [
   os.path.join(builder.buildFolder, 'includes', 'git_action_release'),
 ]
 
-with open(os.path.join(builder.sourcePath, '.git', 'HEAD')) as fp:
+# The extension is vendored below the repository root. Resolve the Git paths
+# through Git rather than assuming a .git directory next to product.version.
+import subprocess
+
+def git_path(name):
+  return subprocess.check_output(['git', '-C', builder.sourcePath, 'rev-parse',
+                                  '--path-format=absolute', '--git-path', name],
+                                 text=True).strip()
+
+git_head_path = git_path('HEAD')
+with open(git_head_path) as fp:
   head_contents = fp.read().strip()
-  if re.search('^[a-fA-F0-9]{40}$', head_contents):
-    git_head_path = os.path.join(builder.sourcePath, '.git', 'HEAD')
-  else:
-    git_state = head_contents.split(':')[1].strip()
-    git_head_path = os.path.join(builder.sourcePath, '.git', git_state)
-    if not os.path.exists(git_head_path):
-      git_head_path = os.path.join(builder.sourcePath, '.git', 'HEAD')
+if head_contents.startswith('ref: '):
+  ref_path = git_path(head_contents[5:])
+  if os.path.exists(ref_path):
+    git_head_path = ref_path
 
 sources = [
   os.path.join(builder.sourcePath, 'product.version'),

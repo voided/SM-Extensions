@@ -1,0 +1,34 @@
+name: TFEconDynamic CI
+
+on:
+  push:
+    branches: [main, 'feature/**']
+    paths:
+      - 'TFEconDynamic/**'
+      - '.github/workflows/tf-econ-dynamic.yml'
+      - '.github/workflows/_extension-ci.yml'
+      - '.github/scripts/**'
+      - 'build-support/**'
+  pull_request:
+    branches: [main, 'feature/**']
+    paths:
+      - 'TFEconDynamic/**'
+      - '.github/workflows/tf-econ-dynamic.yml'
+      - '.github/workflows/_extension-ci.yml'
+      - '.github/scripts/**'
+      - 'build-support/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/_extension-ci.yml
+    permissions:
+      contents: write
+    with:
+      project: TFEconDynamic
+      sdk: true
+      metamod: true
+      plugin: tf_econ_dynamic_compat

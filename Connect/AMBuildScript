@@ -307,6 +307,8 @@ class ExtensionConfig(object):
     have_clang = cxx.family == 'clang'
     if cxx.version >= 'clang-3.9' or cxx.version == 'clang-3.4' or cxx.version > 'apple-clang-6.0':
       cxx.cxxflags += ['-Wno-expansion-to-defined']
+    if have_clang and cxx.version >= 'clang-22':
+      cxx.cxxflags += ['-Wno-nontrivial-memcall']
     if cxx.version == 'clang-3.9' or cxx.version == 'apple-clang-8.0':
       cxx.cflags += ['-Wno-varargs']
     if cxx.version >= 'clang-3.4' or cxx.version >= 'apple-clang-7.0':

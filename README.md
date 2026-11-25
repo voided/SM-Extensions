@@ -1,6 +1,6 @@
 # SM-Extensions
 
-Vendored SourceMod extensions for game-server maintenance. Each top-level project directory contains a snapshot of its upstream source, not a Git submodule. Upstream build files, notices, and license declarations are preserved. This initial import uses the current upstream default branches; the versions observed on an existing server are listed separately where they differ.
+Vendored SourceMod extensions for game-server maintenance. Each top-level project directory contains a snapshot of its upstream source, not a Git submodule. Upstream notices and license declarations are preserved; build definitions may be updated independently to support current SourceMod versions. This initial import uses the current upstream default branches; the versions observed on an existing server are listed separately where they differ.
 
 ## Upstream inventory
 
@@ -28,7 +28,46 @@ Vendored SourceMod extensions for game-server maintenance. Each top-level projec
 
 Accelerator and VScript have upstream-pinned third-party Git submodules, retained as dependencies at their original paths. Initialize them with `git submodule update --init --recursive` after cloning. The extensions themselves are ordinary tracked source directories.
 
-This is a source import only. No extension has been built, modernized, or installed by this import. Consult each project's upstream build instructions for its SDK requirements.
+### GitHub Actions
+
+Each enabled extension has its own [workflow](.github/workflows), path filters, manual dispatch, and release. The workflows share the same AMBuild **2.2** build and release jobs, modeled on SM-TF2Items and CollisionHook.
+
+The native matrix is SourceMod **1.12** (`1.12-dev`) and **1.13** (`master`), Windows and Linux, and x86 and x86_64 where the extension has matching gamedata. Engine-specific extensions are built against the TF2 SDK; generic extensions build without an engine SDK. Metamod:Source uses `1.12-dev` where required. Linux uses the AlliedModders Debian 11 / Clang 22 build container, and Windows uses MSVC. SourceScramble and TFEconDynamic also compile their bundled SourcePawn plugins once per matching SourceMod version and include them in the native packages.
+
+| Extension | Workflow | Linux | Windows |
+| --- | --- | --- | --- |
+| Accelerator | [accelerator.yml](.github/workflows/accelerator.yml) | x86, x64 | x86, x64 |
+| Connect | [connect.yml](.github/workflows/connect.yml) | x86, x64 | x86, x64 |
+| ConsoleCleaner | [console-cleaner.yml](.github/workflows/console-cleaner.yml) | x86, x64 | x86, x64 |
+| LoadSoundScript | [load-soundscript.yml](.github/workflows/load-soundscript.yml) | x86, x64 | x86, x64 |
+| SMJansson | [smjansson.yml](.github/workflows/smjansson.yml) | x86, x64 | x86, x64 |
+| SourceScramble | [source-scramble.yml](.github/workflows/source-scramble.yml) | x86, x64 | x86, x64 |
+| TFEconDynamic | [tf-econ-dynamic.yml](.github/workflows/tf-econ-dynamic.yml) | x86, x64 | x86, x64 |
+| TFMaxSpeedDetour | [tf-max-speed-detour.yml](.github/workflows/tf-max-speed-detour.yml) | x86 | x86 |
+| TFMaxVoiceSpeakDelayUnlimiter | [tf-max-voice-speak-delay-unlimiter.yml](.github/workflows/tf-max-voice-speak-delay-unlimiter.yml) | x86, x64 | x86, x64 |
+| VScript | [vscript.yml](.github/workflows/vscript.yml) | x86, x64 | x86, x64 |
+
+Builds upload an installable `addons/` tree for each matrix entry. On `main` pushes and manual runs of `main`, once every build in the extension's matrix succeeds, the workflow merges the supported architecture trees and publishes four archives (Linux tar.gz and Windows zip for each SourceMod version). Tags are namespaced as `<Extension>-v<upstream-version>.<repository-revision-count>` so independent extensions do not collide; e.g. `SMJansson-v2.15.1-1.2`. Branch and pull-request builds do not publish releases.
+
+To build an enabled extension locally, install AMBuild 2.2 or newer and the appropriate native toolchain, then prepare a dependency directory with the same checkout names as used by CI (`sourcemod`, `metamod-source` if required, and `hl2sdk-tf2` for engine-dependent projects). For example:
+
+```sh
+python -m pip install git+https://github.com/alliedmodders/ambuild.git
+python .github/scripts/build_extension.py build TFMaxSpeedDetour --deps /path/to/deps --arch x86
+python .github/scripts/build_extension.py verify TFMaxSpeedDetour --arch x86 --platform linux
+```
+
+For projects with bundled SourcePawn plugins, invoke the matching SourcePawn compiler and copy the `.smx` into the package's `addons/sourcemod/plugins` directory, as the CI plugin job does.
+
+### Deferred CI
+
+| Extension | Reason |
+| --- | --- |
+| PoseParameterFix | Legacy AMBuild scripts and a locally bundled CDetour/assembly implementation from before the current SourceMod SafetyHook API; needs a proper compatibility port and current gamedata/layout review. |
+| Socket | Hard-coded 32-bit Makefile and old MSVC project, bundled legacy SourceMod SDK shim and Boost.Asio/Boost.Thread dependency; needs a modern AMBuild 2.2 and dependency port for both platforms. |
+| Webcon and Conplex | Shared legacy build requiring older SourceMod header paths and detour APIs, a bundled historical libmicrohttpd and platform networking code; needs a coordinated modernization before independent releases. |
+
+The build matrix validates compilation and package layout, not game-server behavior. TFMaxSpeedDetour compiles for x64, but its upstream gamedata only supplies x86 signature keys; x64 is intentionally excluded from CI until the gamedata is updated. Other gamedata and ABI compatibility still require runtime validation before deployment.
 
 ## Licensing
 

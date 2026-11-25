@@ -1,0 +1,36 @@
+name: VScript CI
+
+on:
+  push:
+    branches: [main, 'feature/**']
+    paths:
+      - 'VScript/**'
+      - '.github/workflows/vscript.yml'
+      - '.github/workflows/_extension-ci.yml'
+      - '.github/scripts/**'
+      - 'build-support/**'
+      - '.gitmodules'
+  pull_request:
+    branches: [main, 'feature/**']
+    paths:
+      - 'VScript/**'
+      - '.github/workflows/vscript.yml'
+      - '.github/workflows/_extension-ci.yml'
+      - '.github/scripts/**'
+      - 'build-support/**'
+      - '.gitmodules'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/_extension-ci.yml
+    permissions:
+      contents: write
+    with:
+      project: VScript
+      sdk: true
+      metamod: true
+      submodule: VScript/third_party/hl2sdk-manifests

@@ -1,0 +1,33 @@
+name: Connect CI
+
+on:
+  push:
+    branches: [main, 'feature/**']
+    paths:
+      - 'Connect/**'
+      - '.github/workflows/connect.yml'
+      - '.github/workflows/_extension-ci.yml'
+      - '.github/scripts/**'
+      - 'build-support/**'
+  pull_request:
+    branches: [main, 'feature/**']
+    paths:
+      - 'Connect/**'
+      - '.github/workflows/connect.yml'
+      - '.github/workflows/_extension-ci.yml'
+      - '.github/scripts/**'
+      - 'build-support/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/_extension-ci.yml
+    permissions:
+      contents: write
+    with:
+      project: Connect
+      sdk: true
+      metamod: true

@@ -1,24 +1,12 @@
-#!/usr/bin/env python
-# vim: set sts=2 ts=8 sw=2 tw=99 et:
+#!/usr/bin/env python3
 import sys
 from ambuild2 import run
 
-# Simple extensions do not need to modify this file.
-
-builder = run.PrepareBuild(sourcePath = sys.path[0])
-
-builder.options.add_option('--hl2sdk-root', type=str, dest='hl2sdk_root', default=None,
-		                   help='Root search folder for HL2SDKs')
-builder.options.add_option('--mms-path', type=str, dest='mms_path', default=None,
-                       help='Path to Metamod:Source')
-builder.options.add_option('--sm-path', type=str, dest='sm_path', default=None,
-                       help='Path to SourceMod')
-builder.options.add_option('--enable-debug', action='store_const', const='1', dest='debug',
-                       help='Enable debugging symbols')
-builder.options.add_option('--enable-optimize', action='store_const', const='1', dest='opt',
-                       help='Enable optimization')
-builder.options.add_option('-s', '--sdks', default='all', dest='sdks',
-                       help='Build against specified SDKs; valid args are "all", "present", or '
-                            'comma-delimited list of engine names (default: %default)')
-
-builder.Configure()
+parser = run.BuildParser(sourcePath=sys.path[0], api='2.2')
+parser.options.add_argument('--sm-path', required=True, help='Path to SourceMod')
+parser.options.add_argument('--mms-path', required=True, help='Path to Metamod:Source')
+parser.options.add_argument('--hl2sdk-root', required=True, help='Directory containing hl2sdk-tf2')
+parser.options.add_argument('--targets', default='x86,x86_64', help='Comma-separated architectures')
+parser.options.add_argument('--enable-debug', action='store_true', dest='debug')
+parser.options.add_argument('--enable-optimize', action='store_true', dest='opt')
+parser.Configure()
